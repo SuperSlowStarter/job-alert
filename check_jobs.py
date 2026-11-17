@@ -37,6 +37,8 @@ DEFAULT_KEYWORDS = [
     "모션디자인",
     "motion graphic",
     "motion design",
+    "애프터이펙트",  # 애프터 이펙트도 매칭
+    "After Effects",
 ]
 
 
@@ -155,6 +157,10 @@ def main() -> int:
     matches: list[dict] = load(MATCHES_FILE, [])
 
     jobs = list_all()
+    if not jobs:
+        # 사이트 구조가 바뀌었거나 접속이 막힘 → 실패로 끝내서 GitHub이 메일로 알려주게 함
+        print("공고를 하나도 읽지 못했습니다. 사이트 구조 변경을 확인하세요.")
+        return 1
     print(f"목록 {len(jobs)}건, 새 공고 {sum(j['uid'] not in seen_set for j in jobs)}건")
 
     for job in jobs:
