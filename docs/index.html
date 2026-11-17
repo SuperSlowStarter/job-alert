@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="모션 공고">
+<meta name="theme-color" content="#111">
+<title>모션 공고</title>
+<style>
+  :root { --bg:#f6f6f4; --card:#fff; --ink:#1a1a1a; --sub:#6b6b6b; --line:#e4e4e0; --accent:#ff5a1f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111; --card:#1c1c1c; --ink:#eee; --sub:#9a9a9a; --line:#2c2c2c; --accent:#ff7a45; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.5 -apple-system, "Apple SD Gothic Neo", "Pretendard", sans-serif;
+         padding:env(safe-area-inset-top) 16px 40px; }
+  header { max-width:640px; margin:24px auto 16px; }
+  h1 { font-size:24px; margin:0; letter-spacing:-.02em; }
+  header p { margin:4px 0 0; color:var(--sub); font-size:13px; }
+  main { max-width:640px; margin:0 auto; display:grid; gap:10px; }
+  a.card { display:block; text-decoration:none; color:inherit; background:var(--card);
+           border:1px solid var(--line); border-radius:14px; padding:14px 16px;
+           opacity:0; transform:translateY(10px);
+           /* 확 치고 길게 감속: 시작 영향력 ~10%, 끝 ~95% */
+           animation:in .7s cubic-bezier(.1,.9,.05,1) forwards; }
+  a.card:active { transform:scale(.98); }
+  @keyframes in { to { opacity:1; transform:none; } }
+  .title { font-weight:600; font-size:16px; letter-spacing:-.01em; }
+  .meta { color:var(--sub); font-size:13px; margin-top:4px; }
+  .tags { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .tag { font-size:12px; padding:2px 8px; border-radius:99px; color:var(--accent);
+         border:1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  .closed { opacity:.45 !important; }
+  .empty { color:var(--sub); text-align:center; padding:40px 0; }
+  @media (prefers-reduced-motion: reduce) { a.card { animation:none; opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>모션 · OAP 공고</h1>
+  <p id="info">불러오는 중…</p>
+</header>
+<main id="list"></main>
+<script>
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function isClosed(deadline, foundAt) {
+  const m = /^(\d{2})\.(\d{2})$/.exec(deadline || "");
+  if (!m || !foundAt) return false;
+  const y = +foundAt.slice(0, 4), fm = +foundAt.slice(5, 7);
+  const year = +m[1] < fm - 6 ? y + 1 : y;          // 12월에 찾은 1월 마감 처리
+  const end = new Date(year, +m[1] - 1, +m[2], 23, 59);
+  return end < new Date();
+}
+fetch("matches.json?" + Date.now()).then(r => r.ok ? r.json() : []).catch(() => []).then(items => {
+  document.getElementById("info").textContent = items.length ? `총 ${items.length}건 · 최근 발견 ${items[0].found_at}` : "아직 매칭된 공고가 없어요";
+  const list = document.getElementById("list");
+  if (!items.length) { list.innerHTML = '<div class="empty">새 공고가 올라오면 여기와 알림으로 알려드릴게요.</div>'; return; }
+  list.innerHTML = items.map((j, i) => `
+    <a class="card ${isClosed(j.deadline, j.found_at) ? "closed" : ""}" href="${esc(j.url)}" style="animation-delay:${Math.min(i, 12) * 40}ms">
+      <div class="title">${esc(j.title)}</div>
+      <div class="meta">${esc(j.category)} · 마감 ${esc(j.deadline)} · ${esc(j.summary)}</div>
+      <div class="tags">${(j.keywords || []).map(k => `<span class="tag">${esc(k)}</span>`).join("")}</div>
+    </a>`).join("");
+});
+</script>
+</body>
+</html>
