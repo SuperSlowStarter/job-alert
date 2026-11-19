@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import html
+import http.client
 import json
 import os
 import re
@@ -25,6 +26,8 @@ from pathlib import Path
 BASE = "https://www.mediadb.co.kr/member/recruit/"
 ROOT = Path(__file__).resolve().parent
 SEEN_FILE = ROOT / "seen.json"
+STATUS_FILE = ROOT / "status.json"
+NET_FAIL_LIMIT = 3  # 연속 접속 실패가 이 횟수에 닿을 때만 실패 처리(메일 발송)
 MATCHES_FILE = ROOT / "docs" / "matches.json"
 KST = timezone(timedelta(hours=9))
 UA = "Mozilla/5.0 (job-alert personal bot)"
@@ -58,8 +61,15 @@ def kw_pattern(kw: str) -> re.Pattern:
 
 def fetch(url: str) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read().decode("utf-8", errors="replace")
+    for wait in (10, 30, None):  # 일시적 접속 오류는 재시도
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return r.read().decode("utf-8", errors="replace")
+        except (OSError, http.client.HTTPException) as e:
+            if wait is None:
+                raise
+            print(f"  접속 실패({e}), {wait}초 후 재시도")
+            time.sleep(wait)
 
 
 def clean(s: str) -> str:
@@ -156,9 +166,20 @@ def main() -> int:
     seen_set = set(seen)
     matches: list[dict] = load(MATCHES_FILE, [])
 
-    jobs = list_all()
+    status = load(STATUS_FILE, {"net_fail": 0})
+    try:
+        jobs = list_all()
+    except (OSError, http.client.HTTPException) as e:
+        status["net_fail"] = status.get("net_fail", 0) + 1
+        print(f"사이트 접속 실패 {status['net_fail']}회 연속: {e}")
+        if not dry:
+            save(STATUS_FILE, status)
+        return 1 if status["net_fail"] >= NET_FAIL_LIMIT else 0
+    status["net_fail"] = 0
+    if not dry:
+        save(STATUS_FILE, status)
     if not jobs:
-        # 사이트 구조가 바뀌었거나 접속이 막힘 → 실패로 끝내서 GitHub이 메일로 알려주게 함
+        # 접속은 되는데 공고를 못 읽음 = 사이트 구조 변경 → 실패로 끝내서 GitHub이 메일로 알려줌
         print("공고를 하나도 읽지 못했습니다. 사이트 구조 변경을 확인하세요.")
         return 1
     print(f"목록 {len(jobs)}건, 새 공고 {sum(j['uid'] not in seen_set for j in jobs)}건")
@@ -176,7 +197,11 @@ def main() -> int:
         if hits:
             print(f"  ★ {job['title']}  ({', '.join(hits)})")
             if not dry:
-                notify(job, hits)
+                try:
+                    notify(job, hits)
+                except (OSError, http.client.HTTPException) as e:
+                    print(f"  알림 전송 실패, 다음 실행에서 재시도: {e}")
+                    continue  # seen에 넣지 않아 다음에 다시 시도
             job["keywords"] = hits
             job["found_at"] = datetime.now(KST).strftime("%Y-%m-%d %H:%M")
             matches.insert(0, job)
